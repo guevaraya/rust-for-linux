@@ -1,6 +1,6 @@
 # 学习记录
 
-\#问题1
+# 问题1
 代码下载，由于rust-for-linux的官方代码全镜像约为4G，国内网络想下载下来是很难的，因此需要添加--depth=1 并指定分支rust-dev，但是太慢
 最终还是用下面命令完成下载：
 
@@ -49,5 +49,5 @@ check-revoke = false
 ```
 
 配置完成结果
+![image](https://github.com/guevaraya/rust-for-linux/assets/446973/e9c21606-476f-4ca1-9b77-63b2f87fe9e7)
 
-![](https://308c364b04.oicp.vip/lib/c07fd064-8e60-45b5-81a7-f55c1d5f6217/file/images/auto-upload/image-1699368525435.png?raw=1)
