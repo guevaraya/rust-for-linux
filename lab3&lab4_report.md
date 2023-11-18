@@ -27,7 +27,53 @@ EXPORT_SYMBOL_GPL(rust_helper_echo);
 ````
 这样就可以在rust里面通过bingling::echo调用C代码了
 
+# 驱动编译和文件系统制作的Makefile脚本
+```
+all: run
 
+menuconfig:
+        #make -C linux ARCH=arm64 LLVM=1 O=build menuconfig
+        make -C linux-fujita ARCH=arm64 LLVM=1 O=build menuconfig
+build:
+        #make -C linux/build ARCH=arm64 LLVM=1 -j4
+        make -C linux-fujita/build ARCH=arm64 LLVM=1 -j4
+run:
+        #qemu-system-aarch64 -M virt -cpu cortex-a72 -smp 8 -m 128M -kernel linux/build/arch/arm64/boot/Image -initrd busybox-1.33.2/initramfs.cpio.gz -nographic -append "init=/linuxrc console=ttyAMA0"
+        qemu-system-aarch64 -M virt \
+        -cpu cortex-a72 \
+        -smp 8 \
+        -m 128M \
+        -device virtio-net-device,netdev=net  \
+        -netdev user,id=net,hostfwd=tcp::2222-:22  \
+        -kernel linux-fujita/build/arch/arm64/boot/Image \
+        -initrd busybox-1.33.2/initramfs.cpio.gz \
+        -nographic \
+        -device e1000,netdev=net0,bus=pcie.0 \
+        -netdev user,id=net0 \
+        -append "init=/linuxrc console=ttyAMA0"
+run_initrd:
+        qemu-system-aarch64 -machine 'virt' \
+        -cpu 'cortex-a57'  \
+        -m 1G -device virtio-blk-device,drive=hd  \
+        -drive file=dqib_arm64-virt/image.qcow2,if=none,id=hd  \
+        -device virtio-net-device,netdev=net  \
+        -netdev user,id=net,hostfwd=tcp::2222-:22  \
+        -kernel linux/build/arch/arm64/boot/Image \
+        -initrd dqib_arm64-virt/initrd \
+        -nographic  \
+        -append "root=LABEL=rootfs console=ttyAMA0"
+busybox:
+        export ARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        make -C busybox-1.33.2
+e1000:
+        make -C e1000-driver/src/linux
+setup: e1000
+        rm  busybox-1.33.2/_install/e1000_for_linux.ko
+        cp  e1000-driver/src/e1000_for_linux.ko   busybox-1.33.2/_install/
+        cd busybox-1.33.2/; ./setup.sh; cd -
+
+```
 # 进入状态
 
 刚开始老师讲解e1000驱动过程，云里雾里，驱动作业无从下手的感觉，前期内核编译和文件系统制作原本很简单，但是各种安装包不兼容问题，并且rust-for-linux的驱动和内核接口变化太快，导致驱动调试，e1000-driver最好还是要基于fujita-linux编译会更好一点，这块我遇到的问题是
@@ -38,14 +84,15 @@ EXPORT_SYMBOL_GPL(rust_helper_echo);
 
 由于之前没有接触过网卡驱动，对网卡配置有点手足无措，最后经过调查E1000有fujita的日本人已经调试好的代码参考 <https://github.com/fujita/rust-e1000，有前辈的代码，可以摸着它的代码调试了>
 
-![](https://308c364b04.oicp.vip/lib/c07fd064-8e60-45b5-81a7-f55c1d5f6217/file/images/auto-upload/image-1700282594632.png?raw=1)
+![image](https://github.com/guevaraya/rust-for-linux/assets/446973/c112bccc-2c47-4b8c-abfc-a0d59e5684de)
+
 
 驱动OSI 7层协议，应用层，表示层，会话层，传输层，网络层，链路层和物理层
 物理层和链路层对应网络的驱动，应用层，表示层，会话层对应ftp，http，ssh等，而传输层就是UDP，TCP，以及最热门的QUIC协议，而链路层典型的是MAC层，物理层是Phy层，IDH等。
 
 代码经过一系列的折腾和编译，也参考了<https://github.com/lispking/rust-e1000-driver> 这位同学的代码，启动之后结果发现没有probe打印，
 
-![](https://308c364b04.oicp.vip/lib/c07fd064-8e60-45b5-81a7-f55c1d5f6217/file/images/auto-upload/image-1700234994664.png?raw=1)
+
 经过仔细对吧，我们的开机启动qemu没有加入e1000网卡参数
 处理中断的时候没有考虑None的情况，导致panic
 
@@ -59,25 +106,21 @@ EXPORT_SYMBOL_GPL(rust_helper_echo);
 
 HTTP发送网络报过程
 
-套接字缓冲区查询命令ss -ntt![](https://308c364b04.oicp.vip/lib/c07fd064-8e60-45b5-81a7-f55c1d5f6217/file/images/auto-upload/image-1700284409535.png?raw=1)
+套接字缓冲区查询命令ss -ntt
 
 
-
-![](https://308c364b04.oicp.vip/lib/c07fd064-8e60-45b5-81a7-f55c1d5f6217/file/images/auto-upload/image-1700282499232.png?raw=1)
 
 看来start_xmit从网络层项链路层发送skb_buffer数据到tx_ring
 
 skb_buffer 数据结构
 
-![](https://308c364b04.oicp.vip/lib/c07fd064-8e60-45b5-81a7-f55c1d5f6217/file/images/auto-upload/image-1700282810824.png?raw=1)
+
 
 Ring buffer结构如下：
 
 
 
-![](https://308c364b04.oicp.vip/lib/c07fd064-8e60-45b5-81a7-f55c1d5f6217/file/images/auto-upload/image-1700280752946.png?raw=1)
-
-![](https://308c364b04.oicp.vip/lib/c07fd064-8e60-45b5-81a7-f55c1d5f6217/file/images/auto-upload/image-1700280822212.png?raw=1)
+![Uploading image.png…]()
 
 e1000 收发参考原理：<https://blog.csdn.net/u010180372/article/details/119525638>
 
